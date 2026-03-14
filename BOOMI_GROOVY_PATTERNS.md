@@ -261,6 +261,81 @@ for (int i = 0; i < dataContext.getDataCount(); i++) {
 
 ---
 
+## Dual-Mode Scripts (Local + Boomi)
+
+For scripts that need to run both locally (for development/testing) and inside Boomi, use `binding.hasVariable('dataContext')` to detect the environment and branch only the I/O. All business logic stays identical.
+
+### Key rules
+
+- Do **not** `import com.boomi.execution.ExecutionUtil` at the top — it won't resolve locally. Use the fully qualified name **inside the Boomi branch only**.
+- Standard Java imports (`java.util.Properties`, `java.io.ByteArrayInputStream`) are safe at the top — they exist in both environments.
+- `@Field` variables and all functions are shared between both branches.
+
+### Pattern
+
+```groovy
+import java.time.LocalDate
+import groovy.json.JsonOutput
+import groovy.transform.Field
+import java.util.Properties
+import java.io.ByteArrayInputStream
+
+// @Field constants and all business logic functions defined here...
+// No references to ExecutionUtil or dataContext at this level.
+
+// ============ ENTRY POINT ============
+if (binding.hasVariable('dataContext')) {
+    // ---- Boomi ----
+    def logger = com.boomi.execution.ExecutionUtil.getBaseLogger()
+    logger.info("Script started. Document count: " + dataContext.getDataCount())
+
+    for (int i = 0; i < dataContext.getDataCount(); i++) {
+        InputStream is   = dataContext.getStream(i)
+        Properties props = dataContext.getProperties(i)
+
+        String content = is.getText('ISO-8859-1')
+
+        // Run business logic
+        def result = processData(content)
+
+        // Output one or more documents, tagged with DDPs for downstream routing
+        Properties outProps = new Properties()
+        outProps.setProperty("document.dynamic.userdefined.ddp_destination", "GL")
+        dataContext.storeStream(new ByteArrayInputStream(JsonOutput.toJson(result).getBytes("UTF-8")), outProps)
+
+        logger.info("Done. Output rows: " + result.size())
+    }
+
+} else {
+    // ---- Local ----
+    def result = processData(new File("in/input.txt").getText('ISO-8859-1'))
+
+    new File("out").mkdirs()
+    new File("out/result.json").text = JsonOutput.prettyPrint(JsonOutput.toJson(result))
+    println "Output rows: ${result.size()} -> out/result.json"
+}
+```
+
+### Why not import ExecutionUtil at the top?
+
+Groovy resolves class references lazily at runtime, not at compile time. Placing `ExecutionUtil` usage only inside the `if (isBoomi)` branch means it is never resolved when running locally. A top-level `import` would force resolution and fail locally if the class is not on the classpath.
+
+### Multiple output documents
+
+When a single input document should produce multiple output types (e.g. GL, AP_CN, AP_CA), write each as a separate document tagged with a DDP. Downstream Boomi routing shapes can then split by `ddp_destination`.
+
+```groovy
+Properties glProps = new Properties()
+glProps.setProperty("document.dynamic.userdefined.ddp_destination", "GL")
+dataContext.storeStream(new ByteArrayInputStream(JsonOutput.toJson(gl).getBytes("UTF-8")), glProps)
+
+Properties cnProps = new Properties()
+cnProps.setProperty("document.dynamic.userdefined.ddp_destination", "AP_CN")
+dataContext.storeStream(new ByteArrayInputStream(JsonOutput.toJson(apCN).getBytes("UTF-8")), cnProps)
+```
+
+---
+
 ## Common Pitfalls
 
 | Mistake | Correct |

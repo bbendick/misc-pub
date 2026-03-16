@@ -336,6 +336,24 @@ dataContext.storeStream(new ByteArrayInputStream(JsonOutput.toJson(apCN).getByte
 
 ---
 
+## Groovy Version Compatibility
+
+Boomi runs **Groovy 2.4**. Many methods added in Groovy 3+ will compile and run fine locally (e.g. with Groovy 4) but fail silently or throw at runtime in Boomi. The error is usually a `MissingMethodException` that only surfaces in Boomi.
+
+### Known Groovy 3+ methods unavailable in Boomi (2.4)
+
+| Avoid (3+) | Use instead (2.4-safe) |
+|---|---|
+| `str.takeRight(n)` | `str.with { it.length() > n ? it.substring(it.length() - n) : it }` |
+| `str.stripLeading()` / `str.stripTrailing()` | `str.replaceAll(/^\s+/, '')` / `str.replaceAll(/\s+$/, '')` |
+| `List.copyOf(...)` | `new ArrayList<>(list)` |
+| `Map.copyOf(...)` | `new LinkedHashMap<>(map)` |
+| `str.isBlank()` | `str == null \|\| str.trim().isEmpty()` |
+
+> ⚠️ Groovy 4 silently resolves some of these via extension methods on the local JVM, so local tests pass. Always validate new string/collection methods against the 2.4 docs before using in Boomi.
+
+---
+
 ## Common Pitfalls
 
 | Mistake | Correct |
@@ -346,3 +364,4 @@ dataContext.storeStream(new ByteArrayInputStream(JsonOutput.toJson(apCN).getByte
 | Setting DDP after `storeStream` | Set it **before** `storeStream` |
 | Using `.bytes` for encoding | Use `.getBytes("UTF-8")` explicitly |
 | `execution.getDynamicProcessProperty()` | `ExecutionUtil.getDynamicProcessProperty()` |
+| `str.takeRight(n)` (Groovy 3+) | `str.with { it.length() > n ? it.substring(it.length() - n) : it }` |
